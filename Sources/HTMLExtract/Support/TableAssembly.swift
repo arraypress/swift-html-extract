@@ -36,14 +36,23 @@ enum TableAssembly {
     }
 
     /// Header names made unique and non-empty, in column order.
+    ///
+    /// A generated name can collide with one the author wrote — a `Total`
+    /// twice and a literal `Total 2` — so a candidate is checked against
+    /// every key taken so far, not only against its own count.
     static func uniqueKeys(_ headers: [String]) -> [String] {
-        var seen: [String: Int] = [:]
+        var taken = Set<String>()
         var keys: [String] = []
         for (index, header) in headers.enumerated() {
             let name = header.isEmpty ? "Column \(index + 1)" : header
-            let count = (seen[name] ?? 0) + 1
-            seen[name] = count
-            keys.append(count == 1 ? name : "\(name) \(count)")
+            var candidate = name
+            var suffix = 2
+            while taken.contains(candidate) {
+                candidate = "\(name) \(suffix)"
+                suffix += 1
+            }
+            taken.insert(candidate)
+            keys.append(candidate)
         }
         return keys
     }

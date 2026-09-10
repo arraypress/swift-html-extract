@@ -77,20 +77,15 @@ public enum HTMLExtract {
     ///   matches nothing. A document with no links returns an empty array.
     public static func links(from html: String, matching selector: String? = nil, base: URL? = nil) throws -> [Link] {
         let document = try parse(html)
-        let scope = try scopeElements(selector, in: document)
-        var links: [Link] = []
-        for element in scope {
-            for anchor in try element.select("a[href]").array() {
-                let href = try anchor.attr("href")
-                links.append(Link(
-                    url: URLResolution.resolve(href, against: base),
-                    href: href,
-                    text: Whitespace.normalized(try anchor.text()),
-                    title: anchor.hasAttr("title") ? try anchor.attr("title") : nil
-                ))
-            }
+        return try descendants("a[href]", within: try scopeElements(selector, in: document)).map { anchor in
+            let href = try anchor.attr("href")
+            return Link(
+                url: URLResolution.resolve(href, against: base),
+                href: href,
+                text: Whitespace.normalized(try anchor.text()),
+                title: anchor.hasAttr("title") ? try anchor.attr("title") : nil
+            )
         }
-        return links
     }
 
     /// Every `<img src>` in the document, or within the elements a selector
@@ -101,20 +96,15 @@ public enum HTMLExtract {
     ///   matches nothing. A document with no images returns an empty array.
     public static func images(from html: String, matching selector: String? = nil, base: URL? = nil) throws -> [Image] {
         let document = try parse(html)
-        let scope = try scopeElements(selector, in: document)
-        var images: [Image] = []
-        for element in scope {
-            for image in try element.select("img[src]").array() {
-                let src = try image.attr("src")
-                images.append(Image(
-                    url: URLResolution.resolve(src, against: base),
-                    src: src,
-                    alt: Whitespace.normalized(try image.attr("alt")),
-                    title: image.hasAttr("title") ? try image.attr("title") : nil
-                ))
-            }
+        return try descendants("img[src]", within: try scopeElements(selector, in: document)).map { image in
+            let src = try image.attr("src")
+            return Image(
+                url: URLResolution.resolve(src, against: base),
+                src: src,
+                alt: Whitespace.normalized(try image.attr("alt")),
+                title: image.hasAttr("title") ? try image.attr("title") : nil
+            )
         }
-        return images
     }
 
     // MARK: - Tables and lists
@@ -167,8 +157,20 @@ public enum HTMLExtract {
                 items += try element.select("li").array()
             }
         }
-        guard !items.isEmpty else { throw HTMLExtractError.noMatch(selector) }
-        return try items.map { Whitespace.normalized(try $0.text()) }
+        /// `ul` matches a nested list as well as its parent, and the nested
+        /// items are already inside the parent item's text. An item whose
+        /// ancestor is also in the list is dropped, so each line appears once.
+        let chosen = Set(items.map(ObjectIdentifier.init))
+        let topLevel = items.filter { item in
+            var current = item.parent()
+            while let element = current {
+                if chosen.contains(ObjectIdentifier(element)) { return false }
+                current = element.parent()
+            }
+            return true
+        }
+        guard !topLevel.isEmpty else { throw HTMLExtractError.noMatch(selector) }
+        return try topLevel.map { Whitespace.normalized(try $0.text()) }
     }
 
     // MARK: - Records
@@ -268,6 +270,24 @@ public enum HTMLExtract {
         return try matches(selector, in: document, first: false)
     }
 
+    /// The elements matching `selector` inside any of `scopes`, each once, in
+    /// document order.
+    ///
+    /// Two matched scopes can nest — `.card` inside `.card` — and a link
+    /// inside the inner one is reachable from both. Reported twice it would
+    /// double a count; a set of identities keeps the first sighting, and
+    /// walking the scopes in document order makes that the outer one.
+    static func descendants(_ selector: String, within scopes: [Element]) throws -> [Element] {
+        var seen = Set<ObjectIdentifier>()
+        var found: [Element] = []
+        for scope in scopes {
+            for element in try scope.select(selector).array() where seen.insert(ObjectIdentifier(element)).inserted {
+                found.append(element)
+            }
+        }
+        return found
+    }
+
     /// One field's answer.
     static func value(of field: Field, in document: Document, base: URL?) throws -> ExtractedValue {
         switch field {
@@ -298,11 +318,11 @@ public enum HTMLExtract {
     /// row, whatever section it sits in, so a `<tfoot>` total is a row too —
     /// it is data, and the caller can drop it by position.
     static func read(table: Element) throws -> Table {
-        let allRows = try table.select("tr").array()
+        let allRows = try table.select("tr").array().filter { nearestTable(of: $0) === table }
         var headers: [String] = []
         var bodyRows = allRows
 
-        if let headRow = try table.select("thead tr").first() {
+        if let headRow = try table.select("thead tr").array().first(where: { nearestTable(of: $0) === table }) {
             headers = try cells(of: headRow)
             bodyRows = allRows.filter { $0 !== headRow && !isInHead($0) }
         } else if let firstRow = allRows.first,
@@ -331,5 +351,20 @@ public enum HTMLExtract {
             current = element.parent()
         }
         return false
+    }
+
+    /// The `<table>` a row belongs to: the closest one above it.
+    ///
+    /// `table.select("tr")` walks the whole subtree, so a table nested in a
+    /// cell contributes its rows to the outer table's list. A row is a row of
+    /// exactly one table, and this is how the outer one declines the inner
+    /// one's.
+    static func nearestTable(of row: Element) -> Element? {
+        var current = row.parent()
+        while let element = current {
+            if element.tagName() == "table" { return element }
+            current = element.parent()
+        }
+        return nil
     }
 }

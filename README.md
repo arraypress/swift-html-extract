@@ -130,7 +130,9 @@ JSON-LD stays as text: a caller knows which schema it expects and `Codable` is t
 
 ## Tested
 
-35 tests, every one a fixed document and one right answer: the first-versus-all cut, an entity and a no-break space, a price split across a span, each of the four link spellings with and without a base, headed, `th`-first and headerless tables, empty and repeated headers, ragged rows, nested lists, a record with a missing field, JSON-LD in order, Open Graph with and without its prefix, a `<meta>` with no content, and the two selector errors. Nothing reaches the network.
+117 tests, every one a fixed document and one right answer. The product page: the first-versus-all cut, an entity and a no-break space, a price split across a span, each of the four link spellings with and without a base, headed, `th`-first and headerless tables, empty and repeated headers, ragged rows, nested lists, a record with a missing field, JSON-LD in order, Open Graph with and without its prefix. Then the documents that are not the product page: an empty string, a fragment with no body, a head with no body, unclosed tags, eleven kinds of malformed markup, an empty selector and a matching-nothing selector for every function, `first:` on nothing, unicode and named, numeric and hex entities in text and attributes, whitespace-only nodes, anchors without `href`, `javascript:`, `mailto:`, `tel:`, `data:`, `sms:` and `ftp:` destinations, bases with and without a path, protocol-relative references, a header row inside `tbody`, `colspan`, a table inside a table, a `tfoot`, ten thousand rows in well under a second, lists three deep, a record with every field missing, duplicate `<meta>` tags, JSON-LD that is not JSON kept raw, an `@graph` block, every error's description, and every model and enum through `Codable` and back. Nothing reaches the network.
+
+Three of those found bugs before the first commit went anywhere: a link inside two nested matched scopes was counted twice, a table inside a cell contributed its rows to the outer table, and a generated header key could collide with a header the author wrote.
 
 ## Licence
 
